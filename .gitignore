@@ -35,8 +35,6 @@ osm_shp/
 app/
 services/
 
-# Large pre-computed data files — too large for GitHub (>100MB)
-# Generate locally: python scripts/precompute_distances.py
-data/distance_grid.parquet
+# data/distance_grid.parquet is tracked via Git LFS (186 MB binary)
 
 # data/segment_code_map.json is intentionally TRACKED (after save_artifacts.py)
