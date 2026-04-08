@@ -1,219 +1,279 @@
-/* ═══════════════════════════════════════════════════════════
-   KZ Real Estate Price Estimator  –  app.js
-   ═══════════════════════════════════════════════════════════ */
+﻿"use strict";
 
-"use strict";
-
-/* ── Constants ────────────────────────────────────────────── */
 const DEFAULT_LAT = 43.2567;
 const DEFAULT_LON = 76.9286;
 
-const DIST_META = {
-  dist_to_school_km:       { icon: "🏫", label: "School" },
-  dist_to_kindergarten_km: { icon: "🎒", label: "Kindergarten" },
-  dist_to_hospital_km:     { icon: "🏥", label: "Hospital" },
-  dist_to_healthcare_km:   { icon: "⚕️", label: "Healthcare centre" },
-  dist_to_pharmacy_km:     { icon: "💊", label: "Pharmacy" },
-  dist_to_main_road_km:    { icon: "🛣️", label: "Main road" },
-};
+const ESRI_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
-/* ── State ────────────────────────────────────────────────── */
-let ymapObj  = null;   // ymaps.Map instance
-let placemark = null;  // ymaps.Placemark instance
+let singleMap        = null;
+let singleMarker     = null;
+let batchMap         = null;
+let batchPredictions = null;
 
-/* ── Yandex Maps init ─────────────────────────────────────── */
-ymaps.ready(function () {
-  const mapDiv = document.getElementById("ymap");
-  if (!mapDiv) return;
+// ── Single map ────────────────────────────────────────────────
+document.getElementById('map-expander').addEventListener('toggle', function () {
+  if (!this.open) return;
+  if (!singleMap) initSingleMap();
+  else singleMap.invalidateSize();
+});
 
-  ymapObj = new ymaps.Map("ymap", {
-    center: [DEFAULT_LAT, DEFAULT_LON],
-    zoom:   11,
-    controls: ["zoomControl", "typeSelector"],
+function initSingleMap() {
+  const esri = L.tileLayer(ESRI_URL, { attribution: '© Esri', maxZoom: 19 });
+
+  singleMap = L.map('single-map', { center: [DEFAULT_LAT, DEFAULT_LON], zoom: 12, layers: [esri], attributionControl: false });
+  L.control.attribution({ prefix: false, position: 'bottomright' }).addTo(singleMap);
+
+  singleMap.on('mousemove', e => {
+    document.getElementById('cursor-pos').textContent =
+      e.latlng.lat.toFixed(6) + ',  ' + e.latlng.lng.toFixed(6);
   });
 
-  // Add search control
+  singleMap.on('click', e => setLocation(e.latlng.lat, e.latlng.lng));
+
+  singleMarker = L.circleMarker([DEFAULT_LAT, DEFAULT_LON], markerStyle()).addTo(singleMap);
+
   try {
-    const searchCtrl = new ymaps.control.SearchControl({
-      options: { float: "right", floatIndex: 100, noPlacemark: true, size: "small" },
-    });
-    ymapObj.controls.add(searchCtrl);
-    searchCtrl.events.add("resultselect", function (e) {
-      const idx    = searchCtrl.getSelectedIndex();
-      const result = searchCtrl.getResultsArray()[idx];
-      const coords = result.geometry.getCoordinates();
-      setLocation(coords[0], coords[1], true);
-    });
-  } catch (_) { /* search unavailable */ }
+    L.Control.geocoder({ position: 'topleft', defaultMarkGeocode: false })
+      .on('markgeocode', e => { const c = e.geocode.center; setLocation(c.lat, c.lng); singleMap.setView(c, 15); })
+      .addTo(singleMap);
+  } catch (_) {}
+}
 
-  // Initial placemark
-  placemark = new ymaps.Placemark(
-    [DEFAULT_LAT, DEFAULT_LON],
-    { balloonContent: fmtCoords(DEFAULT_LAT, DEFAULT_LON) },
-    { preset: "islands#redCircleDotIcon", draggable: true }
-  );
-  ymapObj.geoObjects.add(placemark);
+document.getElementById('LATITUDE').addEventListener('change',  syncMapFromInputs);
+document.getElementById('LONGITUDE').addEventListener('change', syncMapFromInputs);
 
-  // Drag placemark → update inputs
-  placemark.events.add("dragend", function () {
-    const c = placemark.geometry.getCoordinates();
-    setLocation(c[0], c[1], false);
+function syncMapFromInputs() {
+  const lat = parseFloat(document.getElementById('LATITUDE').value);
+  const lon = parseFloat(document.getElementById('LONGITUDE').value);
+  if (isNaN(lat) || isNaN(lon) || !singleMap) return;
+  singleMarker.setLatLng([lat, lon]);
+  singleMap.setView([lat, lon]);
+}
+
+function setLocation(lat, lon) {
+  document.getElementById('LATITUDE').value  = lat.toFixed(6);
+  document.getElementById('LONGITUDE').value = lon.toFixed(6);
+  singleMarker?.setLatLng([lat, lon]);
+}
+
+// ── Single predict ────────────────────────────────────────────
+async function runPredict() {
+  const payload = {
+    ROOMS:        int_('ROOMS'),
+    LONGITUDE:    float_('LONGITUDE'),
+    LATITUDE:     float_('LATITUDE'),
+    TOTAL_AREA:   float_('TOTAL_AREA'),
+    FLOOR:        int_('FLOOR'),
+    TOTAL_FLOORS: int_('TOTAL_FLOORS'),
+    FURNITURE:    int_('FURNITURE'),
+    CONDITION:    int_('CONDITION'),
+    CEILING:      float_('CEILING'),
+    MATERIAL:     int_('MATERIAL'),
+    YEAR:         int_('YEAR'),
+  };
+  if (isNaN(payload.LATITUDE) || isNaN(payload.LONGITUDE)) {
+    showError('Enter valid coordinates or click on the map.'); return;
+  }
+  setLoadingSingle(true);
+  hide('error-card');
+  try {
+    const resp = await fetch('/predict', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    if (!resp.ok) { const e = await resp.json().catch(() => ({ detail: resp.statusText })); throw new Error(e.detail); }
+    const data = await resp.json();
+    renderSingleResult(data, payload);
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    setLoadingSingle(false);
+  }
+}
+
+function setLoadingSingle(on) {
+  const btn = document.getElementById('predict-btn');
+  btn.disabled    = on;
+  btn.textContent = on ? 'Calculating...' : 'Predict Price';
+  on ? show('loading-card') : hide('loading-card');
+}
+
+function renderSingleResult(data, p) {
+  document.getElementById('price-banner').textContent = fmt(data.price_kzt) + ' KZT';
+  show('result-section');
+  if (singleMap && singleMarker) {
+    singleMarker.unbindPopup();
+    singleMarker.bindPopup(fmt(data.price_kzt) + ' KZT').openPopup();
+  }
+  const COLS = ['ROOMS','TOTAL_AREA','FLOOR','TOTAL_FLOORS','FURNITURE','CONDITION',
+                'CEILING','MATERIAL','YEAR','LATITUDE','LONGITUDE','pred_price_kzt'];
+  const row  = { ...p, pred_price_kzt: data.price_kzt };
+  let html   = '<table class="data-table"><thead><tr>';
+  COLS.forEach(c => { html += '<th>' + c + '</th>'; });
+  html += '</tr></thead><tbody><tr>';
+  COLS.forEach(c => {
+    const v = row[c];
+    html += '<td>' + (c === 'pred_price_kzt' ? fmt(v) + ' KZT' : v) + '</td>';
   });
+  html += '</tr></tbody></table>';
+  document.getElementById('details-table-wrap').innerHTML = html;
+}
 
-  // Click map → move placemark + update inputs
-  ymapObj.events.add("click", function (e) {
-    const coords = e.get("coords");
-    setLocation(coords[0], coords[1], true);
+// ── Batch upload ──────────────────────────────────────────────
+async function handleBatchUpload() {
+  const file = document.getElementById('batch-file').files[0];
+  if (!file) return;
+  hide('batch-results');
+  show('batch-loading');
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const resp = await fetch('/batch', { method: 'POST', body: fd });
+    if (!resp.ok) { const e = await resp.json().catch(() => ({ detail: resp.statusText })); throw new Error(e.detail); }
+    batchPredictions = await resp.json();
+    renderBatchResults(batchPredictions);
+    document.getElementById('dl-csv-btn').disabled  = false;
+    document.getElementById('dl-xlsx-btn').disabled = false;
+    if (batchMap && document.getElementById('batch-map-expander').open) renderBatchMarkers();
+  } catch (err) {
+    alert('Batch error: ' + err.message);
+  } finally {
+    hide('batch-loading');
+  }
+}
+
+function renderBatchResults(rows) {
+  document.getElementById('batch-banner').textContent = 'Predicted ' + rows.length + ' properties';
+  const COLS = ['ROOMS','TOTAL_AREA','FLOOR','TOTAL_FLOORS','FURNITURE','CONDITION',
+                'CEILING','MATERIAL','YEAR','LATITUDE','LONGITUDE','pred_price_kzt'];
+  let html = '<table class="data-table"><thead><tr>';
+  COLS.forEach(c => { html += '<th>' + c + '</th>'; });
+  html += '</tr></thead><tbody>';
+  rows.slice(0, 50).forEach(row => {
+    html += '<tr>';
+    COLS.forEach(c => {
+      const v = row[c];
+      html += '<td>' + (c === 'pred_price_kzt' && v != null ? fmt(v) : (v ?? '')) + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('batch-table-wrap').innerHTML = html;
+  show('batch-results');
+}
+
+// ── Batch map ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('batch-map-expander').addEventListener('toggle', function () {
+    if (!this.open) return;
+    if (!batchMap) initBatchMap();
+    else { batchMap.invalidateSize(); renderBatchMarkers(); }
   });
 });
 
-/* ── Location helpers ─────────────────────────────────────── */
-function setLocation(lat, lon, movePlacemark) {
-  document.getElementById("LATITUDE").value  = lat.toFixed(6);
-  document.getElementById("LONGITUDE").value = lon.toFixed(6);
+function initBatchMap() {
+  const esri = L.tileLayer(ESRI_URL, { attribution: '© Esri', maxZoom: 19 });
 
-  if (ymapObj && placemark) {
-    if (movePlacemark) {
-      placemark.geometry.setCoordinates([lat, lon]);
-    }
-    placemark.properties.set("balloonContent", fmtCoords(lat, lon));
-  }
-}
+  batchMap = L.map('batch-map', { center: [DEFAULT_LAT, DEFAULT_LON], zoom: 10, layers: [esri], attributionControl: false });
+  L.control.attribution({ prefix: false, position: 'bottomright' }).addTo(batchMap);
 
-function onCoordsInput() {
-  const lat = parseFloat(document.getElementById("LATITUDE").value);
-  const lon = parseFloat(document.getElementById("LONGITUDE").value);
-  if (!isNaN(lat) && !isNaN(lon) && ymapObj && placemark) {
-    placemark.geometry.setCoordinates([lat, lon]);
-    ymapObj.setCenter([lat, lon]);
-  }
-}
+  // Custom fullscreen button (native browser fullscreen API)
+  const FSControl = L.Control.extend({
+    options: { position: 'topright' },
+    onAdd() {
+      const btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control lf-fs-btn');
+      btn.title = 'Fullscreen';
+      btn.textContent = '[ ]';
+      L.DomEvent.disableClickPropagation(btn);
+      L.DomEvent.on(btn, 'click', () => {
+        const el = batchMap.getContainer();
+        if (!document.fullscreenElement) el.requestFullscreen?.();
+        else document.exitFullscreen?.();
+      });
+      return btn;
+    },
+  });
+  new FSControl().addTo(batchMap);
 
-function fmtCoords(lat, lon) {
-  return lat.toFixed(6) + ", " + lon.toFixed(6);
-}
-
-/* ── Predict ──────────────────────────────────────────────── */
-async function runPredict() {
-  // Collect inputs
-  const payload = {
-    ROOMS:        parseInt(document.getElementById("ROOMS").value,       10),
-    LONGITUDE:    parseFloat(document.getElementById("LONGITUDE").value),
-    LATITUDE:     parseFloat(document.getElementById("LATITUDE").value),
-    TOTAL_AREA:   parseFloat(document.getElementById("TOTAL_AREA").value),
-    FLOOR:        parseInt(document.getElementById("FLOOR").value,       10),
-    TOTAL_FLOORS: parseInt(document.getElementById("TOTAL_FLOORS").value,10),
-    FURNITURE:    parseInt(document.getElementById("FURNITURE").value,   10),
-    CONDITION:    parseInt(document.getElementById("CONDITION").value,   10),
-    CEILING:      parseFloat(document.getElementById("CEILING").value),
-    MATERIAL:     parseInt(document.getElementById("MATERIAL").value,    10),
-    YEAR:         parseInt(document.getElementById("YEAR").value,        10),
-  };
-
-  // Basic validation
-  if (isNaN(payload.LATITUDE) || isNaN(payload.LONGITUDE)) {
-    showError("Please enter valid coordinates or click on the map.");
-    return;
-  }
-
-  setUIState("loading");
-
+  // Geocoder search (top-left)
   try {
-    const resp = await fetch("/predict", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(payload),
+    L.Control.geocoder({ position: 'topleft', defaultMarkGeocode: false })
+      .on('markgeocode', e => batchMap.setView(e.geocode.center, 14))
+      .addTo(batchMap);
+  } catch (_) {}
+
+  // MousePosition display
+  batchMap.on('mousemove', e => {
+    document.getElementById('batch-cursor-pos').textContent =
+      e.latlng.lat.toFixed(6) + ',  ' + e.latlng.lng.toFixed(6);
+  });
+
+  renderBatchMarkers();
+}
+
+const FUN_LBL  = { 1: 'No', 2: 'Partial', 3: 'Full' };
+const MAT_LBL  = { 1: 'Panel', 2: 'Brick', 3: 'Monolithic', 4: 'Mixed' };
+const COND_LBL = { 1: 'Needs renovation', 2: 'Fair', 3: 'Good', 4: 'Excellent', 5: 'Perfect' };
+
+function renderBatchMarkers() {
+  if (!batchMap || !batchPredictions) return;
+  batchMap.eachLayer(l => { if (l instanceof L.CircleMarker) batchMap.removeLayer(l); });
+  const pts = [];
+  batchPredictions.forEach(row => {
+    const lat = +row.LATITUDE, lon = +row.LONGITUDE;
+    if (isNaN(lat) || isNaN(lon)) return;
+    pts.push([lat, lon]);
+    const priceStr = fmt(row.pred_price_kzt) + ' KZT';
+    const popup =
+      '<div class="map-popup">' +
+        '<div class="popup-price">' + priceStr + '</div>' +
+        '<div>Coordinates: ' + lat.toFixed(6) + ', ' + lon.toFixed(6) + '</div>' +
+        '<div>Rooms: ' + row.ROOMS + '</div>' +
+        '<div>Total area (m\u00b2): ' + row.TOTAL_AREA + '</div>' +
+        '<div>Floor/Total: ' + row.FLOOR + '/' + row.TOTAL_FLOORS + '</div>' +
+        '<div>Furniture: ' + (FUN_LBL[row.FURNITURE] || row.FURNITURE) + '</div>' +
+        '<div>Condition: ' + (COND_LBL[row.CONDITION] || row.CONDITION) + '</div>' +
+        '<div>Ceiling (m): ' + row.CEILING + '</div>' +
+        '<div>Material: ' + (MAT_LBL[row.MATERIAL] || row.MATERIAL) + '</div>' +
+        '<div>Year: ' + row.YEAR + '</div>' +
+      '</div>';
+    L.circleMarker([lat, lon], markerStyle())
+      .bindPopup(popup)
+      .bindTooltip(priceStr, { direction: 'top', sticky: true })
+      .addTo(batchMap);
+  });
+  if (pts.length > 0) batchMap.fitBounds(L.latLngBounds(pts).pad(0.1));
+}
+
+// ── Downloads ─────────────────────────────────────────────────
+function downloadCSV() {
+  if (!batchPredictions) return;
+  const COLS = ['ROOMS','TOTAL_AREA','FLOOR','TOTAL_FLOORS','FURNITURE','CONDITION',
+                'CEILING','MATERIAL','YEAR','LATITUDE','LONGITUDE','pred_price_kzt'];
+  let csv = COLS.join(',') + '\n';
+  batchPredictions.forEach(r => { csv += COLS.map(c => r[c] ?? '').join(',') + '\n'; });
+  trigger(new Blob([csv], { type: 'text/csv' }), 'predictions.csv');
+}
+
+async function downloadXLSX() {
+  if (!batchPredictions) return;
+  try {
+    const resp = await fetch('/batch/download/xlsx', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(batchPredictions),
     });
-
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-      throw new Error(err.detail || "Server error");
-    }
-
-    const data = await resp.json();
-    renderResult(data);
-    setUIState("result");
-  } catch (err) {
-    showError(err.message);
-    setUIState("error");
-  }
+    trigger(await resp.blob(), 'predictions.xlsx');
+  } catch (e) { alert('Download failed: ' + e.message); }
 }
 
-/* ── UI state machine ─────────────────────────────────────── */
-function setUIState(state) {
-  const btn = document.getElementById("predict-btn");
-  hide("placeholder-card");
-  hide("loading-card");
-  hide("result-section");
-  hide("error-card");
-
-  if (state === "loading") {
-    btn.disabled    = true;
-    btn.textContent = "Calculating …";
-    show("loading-card");
-  } else if (state === "result") {
-    btn.disabled    = false;
-    btn.textContent = "Estimate Price";
-    show("result-section");
-  } else if (state === "error") {
-    btn.disabled    = false;
-    btn.textContent = "Estimate Price";
-    show("error-card");
-    show("result-section");   // keep previous result visible below error
-  }
+function trigger(blob, name) {
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
+  a.click(); URL.revokeObjectURL(a.href);
 }
 
-/* ── Render result ────────────────────────────────────────── */
-function renderResult(data) {
-  // Price
-  document.getElementById("price-display").textContent =
-    "₸ " + fmt(data.price_kzt);
-  document.getElementById("price-sqm").textContent =
-    fmt(data.price_per_sqm) + " ₸ / m²";
-  document.getElementById("region-code").textContent = data.region_grid;
-  document.getElementById("segment-code").textContent = data.segment_code;
-
-  // Distances
-  const dtDiv = document.getElementById("distances-table");
-  dtDiv.innerHTML = "";
-  for (const [key, meta] of Object.entries(DIST_META)) {
-    const km  = data.distances[key];
-    if (km === undefined) continue;
-    const row = document.createElement("div");
-    row.className = "info-row";
-
-    const cls = km < 1 ? "val-near" : km > 5 ? "val-far" : "";
-    row.innerHTML =
-      `<span class="info-icon">${meta.icon}</span>` +
-      `<span class="info-label">${meta.label}</span>` +
-      `<span class="info-value ${cls}">${km.toFixed(3)} km</span>`;
-    dtDiv.appendChild(row);
-  }
-
-  // Stats
-  const stDiv = document.getElementById("stats-table");
-  stDiv.innerHTML = "";
-  for (const [label, val] of Object.entries(data.stat)) {
-    if (val === null || val === undefined) continue;
-    const row = document.createElement("div");
-    row.className = "info-row";
-    const display = typeof val === "number" ? fmtNum(val) : val;
-    row.innerHTML =
-      `<span class="info-label">${label}</span>` +
-      `<span class="info-value">${display}</span>`;
-    stDiv.appendChild(row);
-  }
-}
-
-/* ── Helpers ──────────────────────────────────────────────── */
-function fmt(n)    { return Math.round(n).toLocaleString("ru-RU"); }
-function fmtNum(n) {
-  if (Number.isInteger(n)) return n.toLocaleString("ru-RU");
-  return parseFloat(n.toFixed(2)).toLocaleString("ru-RU");
-}
-function show(id)  { document.getElementById(id).classList.remove("hidden"); }
-function hide(id)  { document.getElementById(id).classList.add("hidden"); }
-
-function showError(msg) {
-  document.getElementById("error-msg").textContent = msg;
-}
+// ── Helpers ───────────────────────────────────────────────────
+function int_(id)   { return parseInt(document.getElementById(id).value, 10); }
+function float_(id) { return parseFloat(document.getElementById(id).value); }
+function fmt(n)     { return Math.round(n).toLocaleString('ru-RU'); }
+function show(id)   { document.getElementById(id)?.classList.remove('hidden'); }
+function hide(id)   { document.getElementById(id)?.classList.add('hidden'); }
+function markerStyle() { return { radius: 6, color: '#00E0A8', fillColor: '#00E0A8', fillOpacity: 0.8, weight: 1.5 }; }
+function showError(msg) { document.getElementById('error-msg').textContent = msg; show('error-card'); }

@@ -1,33 +1,11 @@
 {
-  "input_dim": 13,
-  "feature_names": [
-    "ROOMS",
-    "LONGITUDE",
-    "LATITUDE",
-    "TOTAL_AREA",
-    "FLOOR",
-    "TOTAL_FLOORS",
-    "FURNITURE",
-    "CONDITION",
-    "CEILING",
-    "MATERIAL",
-    "YEAR",
-    "REGION_GRID",
-    "segment_code"
-  ],
-  "target_column": "PRICE_ln",
-  "test_metrics": {
-    "mae": 0.14062692542382965,
-    "mse": 0.03809635793393805,
-    "rmse": 0.19518288330163086,
-    "r2": 0.9073263183993703,
-    "mape": 0.8279918558407479
-  },
-  "training_config": {
-    "epochs": 100,
-    "batch_size": 32,
-    "learning_rate": 0.001,
-    "early_stopping_patience": 10,
-    "random_state": 0
-  }
+  "input_dim": 46,
+  "architecture": "Linear(input\u219264)\u2192ReLU\u2192Linear(64\u219216)\u2192ReLU\u2192Linear(16\u21921)",
+  "target": "PRICE_ln (log of price in KZT)",
+  "MAPE": 0.8172400295734406,
+  "MAE": 0.13891232013702393,
+  "MSE": 0.03754037618637085,
+  "RMSE": 0.1937533901287171,
+  "R2": 0.908989667892456,
+  "n_features": 46
 }

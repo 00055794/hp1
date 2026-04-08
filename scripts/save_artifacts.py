@@ -15,12 +15,12 @@ USAGE — run this cell at the end of your training notebook:
   OR paste the code directly into a notebook cell.
 
 REQUIRED notebook variables:
-    model          — trained HousePriceNN instance (torch.nn.Module)
+    model          — trained HousePriceModel instance (torch.nn.Module)
     scaler_X       — fitted MinMaxScaler for X
     scaler_y       — fitted MinMaxScaler for y (ln price)
-    X_train        — pd.DataFrame with training features (column order = truth)
-    mape, mae, mse, rmse, r2  — evaluation metrics (floats)
-    segment_encoder — dict {segment_id: int_code}  (from LabelEncoder.fit)
+    X_train_full   — pd.DataFrame with training features (column order = truth)
+    MAPE_test, MAE_test, MSE_test, RMSE_test, R2_test  — evaluation metrics
+    segment_encoder — dict {segment_id: int_code}  (optional, skipped if absent)
 
 ACCURACY CHECKLIST:
   1. feature_list.json order = X_train.columns  ← guaranteed here
@@ -49,8 +49,8 @@ DATA_DIR  = BASE_DIR / "data"
 MODEL_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
-# ── 1. Feature list (CRITICAL: must match X_train.columns order) ──────────────
-feature_list = list(X_train.columns)
+# ── 1. Feature list (CRITICAL: must match X_train_full.columns order) ───────────
+feature_list = list(X_train_full.columns)
 print(f"Features ({len(feature_list)}): {feature_list}")
 
 # Sanity check expected count: 11 user inputs + REGION_GRID + segment_code
@@ -89,16 +89,16 @@ metadata = {
     "input_dim":    len(feature_list),
     "architecture": "Linear(input→64)→ReLU→Linear(64→16)→ReLU→Linear(16→1)",
     "target":       "PRICE_ln (log of price in KZT)",
-    "MAPE":         float(mape),
-    "MAE":          float(mae),
-    "MSE":          float(mse),
-    "RMSE":         float(rmse),
-    "R2":           float(r2),
+    "MAPE":         float(MAPE_test),
+    "MAE":          float(MAE_test),
+    "MSE":          float(MSE_test),
+    "RMSE":         float(RMSE_test),
+    "R2":           float(R2_test),
     "n_features":   len(feature_list),
 }
 with open(MODEL_DIR / "metadata.json", "w", encoding="utf-8") as f:
     json.dump(metadata, f, indent=2)
-print(f"✅ Saved metadata.json  (MAPE={mape:.4f}%, R²={r2:.4f})")
+print(f"✅ Saved metadata.json  (MAPE={MAPE_test:.4f}%, R²={R2_test:.4f})")
 
 # ── 7. Save segment code map ──────────────────────────────────────────────────
 # segment_encoder must be a dict: {segment_id_value: int_code}

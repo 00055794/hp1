@@ -19,16 +19,20 @@ MODEL_DIR = Path(__file__).resolve().parent / "nn_model"
 
 
 class HousePriceNN(nn.Module):
+    """Matches the HousePriceModel architecture from the training notebook
+    (named layers fc1/fc2/fc3 so state_dict keys align with model.pt)."""
     def __init__(self, input_dim: int):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 64), nn.ReLU(),
-            nn.Linear(64, 16),        nn.ReLU(),
-            nn.Linear(16, 1),
-        )
+        self.fc1   = nn.Linear(input_dim, 64)
+        self.relu1 = nn.ReLU()
+        self.fc2   = nn.Linear(64, 16)
+        self.relu2 = nn.ReLU()
+        self.fc3   = nn.Linear(16, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        x = self.relu1(self.fc1(x))
+        x = self.relu2(self.fc2(x))
+        return self.fc3(x)
 
 
 class NNInference:

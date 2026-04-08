@@ -4,182 +4,191 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KZ Real Estate Price Estimator</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
 
-<!-- ═══════════════════════════ HEADER ══════════════════════════════════ -->
-<header class="navbar">
-  <div class="nav-brand">
-    <span class="nav-icon">🏠</span>
-    KZ Real Estate Price Estimator
-  </div>
-  <div class="nav-sub">Neural Network · Kazakhstan · 2025</div>
+<!-- ══════════ HEADER ══════════ -->
+<header class="app-header">
+  <div class="header-title">KZ Real Estate Price Estimator</div>
+  <div class="header-caption">Predict apartment prices in KZT and view them on the map. Upload your file or use the form.</div>
 </header>
 
-<!-- ═══════════════════════════ MAIN ════════════════════════════════════ -->
-<div class="app-grid">
+<!-- ══════════ MAIN TWO-COLUMN GRID ══════════ -->
+<main class="two-col">
 
-  <!-- ─────────────── LEFT PANEL ─────────────── -->
-  <div class="left-panel">
+  <!-- ════════ LEFT: Single Prediction ════════ -->
+  <section class="col">
 
-    <!-- MAP CARD -->
+    <!-- Map picker (collapsed by default) -->
+    <details class="expander" id="map-expander">
+      <summary>Map</summary>
+      <div class="expander-body">
+        <div id="single-map"></div>
+        <div class="cursor-pos" id="cursor-pos">Move cursor over map</div>
+      </div>
+    </details>
+
+    <!-- Input form -->
     <div class="card">
-      <div class="card-title">📍 Pick Location on Map</div>
-      <div id="ymap"></div>
-      <div class="coords-row">
+      <div class="form-2col">
+
+        <!-- Left sub-column -->
+        <div class="sub-col">
+          <div class="form-group">
+            <label for="ROOMS">Rooms</label>
+            <input type="number" id="ROOMS" min="1" max="10" value="2" />
+          </div>
+          <div class="form-group">
+            <label for="TOTAL_AREA">Area m²</label>
+            <input type="number" id="TOTAL_AREA" step="0.1" min="10" max="1000" value="60" />
+          </div>
+          <div class="form-group">
+            <label for="FLOOR">Floor</label>
+            <input type="number" id="FLOOR" min="1" max="100" value="5" />
+          </div>
+          <div class="form-group">
+            <label for="TOTAL_FLOORS">Total Floors</label>
+            <input type="number" id="TOTAL_FLOORS" min="1" max="100" value="9" />
+          </div>
+          <div class="form-group">
+            <label for="CEILING">Ceiling m</label>
+            <input type="number" id="CEILING" step="0.1" min="2.0" max="5.0" value="2.7" />
+          </div>
+        </div>
+
+        <!-- Right sub-column -->
+        <div class="sub-col">
+          <div class="form-group">
+            <label for="YEAR">Year</label>
+            <input type="number" id="YEAR" min="1950" max="2100" value="2015" />
+          </div>
+          <div class="form-group">
+            <label for="MATERIAL">Material</label>
+            <select id="MATERIAL">
+              <option value="1" selected>Panel</option>
+              <option value="2">Brick</option>
+              <option value="3">Monolithic</option>
+              <option value="4">Mixed</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="FURNITURE">Furniture</label>
+            <select id="FURNITURE">
+              <option value="1" selected>No</option>
+              <option value="2">Partial</option>
+              <option value="3">Full</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="CONDITION">Condition</label>
+            <select id="CONDITION">
+              <option value="1">Needs renovation</option>
+              <option value="3" selected>Good</option>
+              <option value="5">Excellent</option>
+            </select>
+          </div>
+        </div>
+
+      </div><!-- /form-2col -->
+
+      <!-- Latitude / Longitude (full width) -->
+      <div class="form-2col coords-row">
         <div class="form-group">
           <label for="LATITUDE">Latitude</label>
-          <input type="number" id="LATITUDE" step="0.000001" min="40" max="55"
-                 value="43.256700" onchange="onCoordsInput()" />
+          <input type="number" id="LATITUDE" step="0.000001" min="40" max="55" value="43.256700" />
         </div>
         <div class="form-group">
           <label for="LONGITUDE">Longitude</label>
-          <input type="number" id="LONGITUDE" step="0.000001" min="46" max="87"
-                 value="76.928600" onchange="onCoordsInput()" />
-        </div>
-      </div>
-    </div>
-
-    <!-- PROPERTY DETAILS CARD -->
-    <div class="card">
-      <div class="card-title">🏢 Property Details</div>
-
-      <!-- Row 1: Area & Rooms -->
-      <div class="form-grid cols-4">
-        <div class="form-group">
-          <label for="ROOMS">Rooms</label>
-          <input type="number" id="ROOMS" min="1" max="20" value="2" />
-        </div>
-        <div class="form-group col-span-2">
-          <label for="TOTAL_AREA">Total Area (m²)</label>
-          <input type="number" id="TOTAL_AREA" step="0.1" min="10" max="1000" value="62.0" />
-        </div>
-        <div class="form-group">
-          <label for="YEAR">Year Built</label>
-          <input type="number" id="YEAR" min="1900" max="2030" value="2015" />
+          <input type="number" id="LONGITUDE" step="0.000001" min="46" max="87" value="76.928600" />
         </div>
       </div>
 
-      <!-- Row 2: Floors & Ceiling -->
-      <div class="form-grid cols-4">
-        <div class="form-group">
-          <label for="FLOOR">Floor</label>
-          <input type="number" id="FLOOR" min="1" max="100" value="5" />
-        </div>
-        <div class="form-group">
-          <label for="TOTAL_FLOORS">Total Floors</label>
-          <input type="number" id="TOTAL_FLOORS" min="1" max="100" value="9" />
-        </div>
-        <div class="form-group col-span-2">
-          <label for="CEILING">Ceiling Height (m)</label>
-          <input type="number" id="CEILING" step="0.1" min="1.5" max="10" value="2.7" />
-        </div>
-      </div>
-
-      <!-- Row 3: Categorical selects -->
-      <div class="form-grid cols-3">
-        <div class="form-group">
-          <label for="MATERIAL">Wall Material</label>
-          <select id="MATERIAL">
-            <option value="1">Panel</option>
-            <option value="2">Brick</option>
-            <option value="3">Monolith</option>
-            <option value="4">Other</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="FURNITURE">Furniture</label>
-          <select id="FURNITURE">
-            <option value="1">None</option>
-            <option value="2" selected>Partial</option>
-            <option value="3">Full</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="CONDITION">Condition</label>
-          <select id="CONDITION">
-            <option value="1">1 – Poor</option>
-            <option value="2">2 – Fair</option>
-            <option value="3" selected>3 – Good</option>
-            <option value="4">4 – Excellent</option>
-            <option value="5">5 – Perfect</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Predict button -->
-      <button id="predict-btn" class="predict-btn" onclick="runPredict()">
-        Estimate Price
+      <button id="predict-btn" class="btn-primary btn-full" onclick="runPredict()">
+        Predict Price
       </button>
-    </div>
-  </div><!-- /left-panel -->
+    </div><!-- /card -->
 
-  <!-- ─────────────── RIGHT PANEL ─────────────── -->
-  <div class="right-panel">
-
-    <!-- Placeholder shown before first prediction -->
-    <div id="placeholder-card" class="placeholder-card">
-      <div class="placeholder-icon">🏡</div>
-      <div class="placeholder-title">Select a location and fill in the property details</div>
-      <div class="placeholder-sub">Click on the map or enter coordinates, then press <strong>Estimate Price</strong></div>
-    </div>
-
-    <!-- Spinner shown during request -->
+    <!-- Loading -->
     <div id="loading-card" class="loading-card hidden">
       <div class="spinner"></div>
-      <div class="loading-text">Calculating price …</div>
+      <span class="loading-text">Calculating...</span>
     </div>
 
-    <!-- Error card -->
+    <!-- Error -->
     <div id="error-card" class="error-card hidden">
-      <div class="error-icon">⚠️</div>
-      <div id="error-msg" class="error-msg"></div>
+      <span id="error-msg"></span>
     </div>
 
-    <!-- Results shown after prediction -->
+    <!-- Prediction result -->
     <div id="result-section" class="hidden">
+      <div class="success-banner" id="price-banner"></div>
+      <details class="expander">
+        <summary>Details</summary>
+        <div class="expander-body">
+          <div class="table-scroll" id="details-table-wrap"></div>
+        </div>
+      </details>
+    </div>
 
-      <!-- Price card -->
-      <div class="price-card">
-        <div class="price-label">Estimated Market Price</div>
-        <div id="price-display" class="price-value">—</div>
-        <div id="price-sqm" class="price-sqm">—</div>
-        <div class="price-meta">
-          Region grid: <span id="region-code">—</span> &nbsp;|&nbsp;
-          Segment: <span id="segment-code">—</span>
+  </section><!-- /left col -->
+
+  <!-- ════════ RIGHT: Batch Upload ════════ -->
+  <section class="col">
+
+    <!-- File uploader -->
+    <div class="card upload-card">
+      <label class="upload-zone" id="upload-zone">
+        <div class="upload-title">Upload CSV / Excel</div>
+        <div class="upload-hint">Drag and drop or click to browse</div>
+        <input type="file" id="batch-file" accept=".csv,.xlsx" onchange="handleBatchUpload()" />
+      </label>
+    </div>
+
+    <!-- Download buttons (always visible, disabled until batch runs) -->
+    <div class="btn-row">
+      <button id="dl-csv-btn" class="btn-secondary" disabled onclick="downloadCSV()">Download CSV</button>
+      <button id="dl-xlsx-btn" class="btn-secondary" disabled onclick="downloadXLSX()">Download Excel</button>
+    </div>
+
+    <!-- Batch loading -->
+    <div id="batch-loading" class="loading-card hidden">
+      <div class="spinner"></div>
+      <span class="loading-text">Processing batch...</span>
+    </div>
+
+    <!-- Batch results -->
+    <div id="batch-results" class="hidden">
+      <div class="success-banner" id="batch-banner"></div>
+      <div class="table-scroll" id="batch-table-wrap"></div>
+      <details class="expander" id="batch-map-expander">
+        <summary>View on Map</summary>
+        <div class="expander-body">
+          <div id="batch-map"></div>
+          <div class="cursor-pos" id="batch-cursor-pos">Move cursor over map</div>
+        </div>
+      </details>
+    </div>
+
+    <!-- Template download -->
+    <details class="expander">
+      <summary>Download Template</summary>
+      <div class="expander-body">
+        <div class="btn-row">
+          <a href="/template/csv"  class="btn-secondary">CSV</a>
+          <a href="/template/xlsx" class="btn-secondary">Excel</a>
         </div>
       </div>
+    </details>
 
-      <!-- OSM Distances -->
-      <div class="info-card">
-        <div class="info-card-title">📏 Proximity to Facilities</div>
-        <div id="distances-table" class="info-table"></div>
-      </div>
+  </section><!-- /right col -->
 
-      <!-- Regional Statistics -->
-      <div class="info-card">
-        <div class="info-card-title">📊 Regional Statistics</div>
-        <div id="stats-table" class="info-table"></div>
-      </div>
+</main>
 
-    </div><!-- /result-section -->
-  </div><!-- /right-panel -->
-
-</div><!-- /app-grid -->
-
-<!-- ═══════════════════ YANDEX MAPS ════════════════════════════════════ -->
-{% if yandex_key %}
-<script src="https://api-maps.yandex.ru/2.1/?apikey={{ yandex_key }}&lang=en_RU"
-        type="text/javascript"></script>
-{% else %}
-<!-- No Yandex API key: fallback map disabled, coords entered manually -->
-<script>
-  // Provide a minimal ymaps stub so app.js loads without errors
-  window.ymaps = { ready: function(cb) { document.addEventListener('DOMContentLoaded', function(){ try{ cb(); }catch(e){} }); } };
-</script>
-{% endif %}
-
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

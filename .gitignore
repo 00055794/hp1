@@ -35,6 +35,8 @@ osm_shp/
 app/
 services/
 
-# Local-only scripts folder is fine (no generated data to ignore)
-# data/distance_grid.parquet is intentionally TRACKED (pre-computed, ~10MB)
+# Large pre-computed data files — too large for GitHub (>100MB)
+# Generate locally: python scripts/precompute_distances.py
+data/distance_grid.parquet
+
 # data/segment_code_map.json is intentionally TRACKED (after save_artifacts.py)

@@ -10,15 +10,19 @@ Architecture (flat modules at project root):
 The model receives only the features listed in nn_model/feature_list.json
 (currently 13; upgrades to 47 after running scripts/save_artifacts.py).
 """
+import io
 import os
 from pathlib import Path
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+import pandas as pd
 import uvicorn
 
 BASE_DIR   = Path(__file__).resolve().parent
@@ -91,8 +95,8 @@ async def predict(data: PredictionInput):
         features_df = _pipeline.assemble(user_input)
 
         # Extract derived codes for display
-        region_grid_code = int(features_df["REGION_GRID"].iloc[0]) \
-            if "REGION_GRID" in features_df.columns else -1
+        region_grid_code = int(features_df["REGION"].iloc[0]) \
+            if "REGION" in features_df.columns else -1
         segment_code_val = int(features_df["segment_code"].iloc[0]) \
             if "segment_code" in features_df.columns else -1
 
@@ -118,6 +122,81 @@ async def predict(data: PredictionInput):
 @app.get("/health")
 async def health():
     return {"status": "ok", "model_loaded": _nn is not None}
+
+
+# ── Batch predict ─────────────────────────────────────────────────────────────
+REQUIRED_COLS = ["ROOMS", "LATITUDE", "LONGITUDE", "TOTAL_AREA", "FLOOR",
+                 "TOTAL_FLOORS", "FURNITURE", "CONDITION", "CEILING", "MATERIAL", "YEAR"]
+
+
+@app.post("/batch")
+async def batch_predict(file: UploadFile = File(...)):
+    if _pipeline is None or _nn is None:
+        raise HTTPException(status_code=503, detail="Model not loaded yet.")
+    try:
+        contents = await file.read()
+        if file.filename and file.filename.lower().endswith(".xlsx"):
+            df = pd.read_excel(io.BytesIO(contents))
+        else:
+            df = pd.read_csv(io.StringIO(contents.decode("utf-8", errors="replace")))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot parse file: {exc}") from exc
+
+    missing = [c for c in REQUIRED_COLS if c not in df.columns]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing columns: {missing}")
+
+    df = df.head(500)  # safety cap
+    results: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        try:
+            user_input = {c: row[c] for c in REQUIRED_COLS}
+            features_df = _pipeline.assemble(user_input)
+            price_kzt = float(_nn.predict_kzt(features_df)[0])
+            rec: dict[str, Any] = {c: (None if pd.isna(row[c]) else
+                                        int(row[c]) if isinstance(row[c], (int,)) else
+                                        float(row[c]) if hasattr(row[c], '__float__') else row[c])
+                                   for c in REQUIRED_COLS}
+            rec["pred_price_kzt"] = round(price_kzt, 0)
+            results.append(rec)
+        except Exception:
+            pass
+    return jsonable_encoder(results)
+
+
+@app.post("/batch/download/xlsx")
+async def batch_download_xlsx(rows: list[dict[str, Any]]):
+    df  = pd.DataFrame(rows)
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=predictions.xlsx"},
+    )
+
+
+@app.get("/template/csv")
+async def template_csv():
+    content = ",".join(REQUIRED_COLS) + "\n"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=template.csv"},
+    )
+
+
+@app.get("/template/xlsx")
+async def template_xlsx():
+    buf = io.BytesIO()
+    pd.DataFrame(columns=REQUIRED_COLS).to_excel(buf, index=False)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=template.xlsx"},
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

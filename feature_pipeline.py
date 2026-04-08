@@ -5,9 +5,9 @@ Assembles ALL features from 11 user inputs, then selects only the features
 listed in nn_model/feature_list.json for the model.
 
 Feature assembly order (up to 47 total):
-  11  user inputs:   ROOMS, LONGITUDE, LATITUDE, TOTAL_AREA, FLOOR,
+  11  user inputs:   ROOMS, LONGITUDE, LATITUDE, TOTAL_AREA (→ "TOTAL AREA"), FLOOR,
                      TOTAL_FLOORS, FURNITURE, CONDITION, CEILING, MATERIAL, YEAR
-   1  derived:       REGION_GRID  ← region_grid.py
+   1  derived:       REGION  ← region_grid.py (renamed from REGION_GRID)
    1  derived:       segment_code ← spatial join with segments GeoJSON
   28+ stat features  ← stat_loader.py
    6  OSM distances  ← osm_distances.py
@@ -103,9 +103,11 @@ class FeaturePipeline:
 
         # Start with 11 user features
         row: dict = {k: float(user_input[k]) for k in USER_FEATURES}
+        # Rename to match model training column names
+        row["TOTAL AREA"] = row.pop("TOTAL_AREA")
 
-        # ── Derived: REGION_GRID & segment_code ──────────────────────────────
-        row["REGION_GRID"]  = self.region_grid.get_code(lat, lon)
+        # ── Derived: REGION & segment_code ───────────────────────────────────
+        row["REGION"] = self.region_grid.get_code(lat, lon)
         row["segment_code"] = self._get_segment_code(lat, lon)
 
         # ── Statistical features (28+ columns from Stat Excel) ───────────────
